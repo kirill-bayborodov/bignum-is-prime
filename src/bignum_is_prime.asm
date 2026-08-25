@@ -800,11 +800,35 @@ bignum_is_prime:
     js      .prime_composite
     cmp     qword [rbp-320 + LEN_OFFSET], 1
     jne     .prime_general
-    cmp     qword [rbp-320], 3
+    cmp     qword [rbp-320], 37
     ja      .prime_general
     cmp     qword [rbp-320], 2
     jb      .prime_composite
-    jmp     .prime_success
+    cmp     qword [rbp-320], 2
+    je      .prime_success
+    cmp     qword [rbp-320], 3
+    je      .prime_success
+    cmp     qword [rbp-320], 5
+    je      .prime_success
+    cmp     qword [rbp-320], 7
+    je      .prime_success
+    cmp     qword [rbp-320], 11
+    je      .prime_success
+    cmp     qword [rbp-320], 13
+    je      .prime_success
+    cmp     qword [rbp-320], 17
+    je      .prime_success
+    cmp     qword [rbp-320], 19
+    je      .prime_success
+    cmp     qword [rbp-320], 23
+    je      .prime_success
+    cmp     qword [rbp-320], 29
+    je      .prime_success
+    cmp     qword [rbp-320], 31
+    je      .prime_success
+    cmp     qword [rbp-320], 37
+    je      .prime_success
+    jmp     .prime_composite
 .prime_general:
     mov     rdi, [rbp-24]
     mov     dword [rdi], 0
