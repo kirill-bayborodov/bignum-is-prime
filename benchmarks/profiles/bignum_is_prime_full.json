@@ -1,59 +1,59 @@
 {
   "schema_version": 1,
-  "description": "Full domain-specific matrix for reproducible bignum_template left-shift benchmarking, including operand length and near-capacity scenarios.",
+  "description": "Full domain-specific matrix for reproducible bignum_is_prime Miller--Rabin benchmarking, including operand length and near-capacity scenarios.",
   "profiles": [
     {
       "id": "zero-one-end-to-end",
       "input_kind": "zero",
-      "operation_kind": "shift-zero",
+      "operation_kind": "mr-quick",
       "measure_mode": "end-to-end",
       "size_profile": "one",
       "capacity_profile": "normal"
     },
     {
-      "id": "nonzero-one-zero-kernel",
+      "id": "nonzero-one-quick-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-zero",
+      "operation_kind": "mr-quick",
       "measure_mode": "kernel-only",
       "size_profile": "one",
       "capacity_profile": "normal"
     },
     {
-      "id": "nonzero-one-bit-kernel",
+      "id": "nonzero-one-standard-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-bit",
+      "operation_kind": "mr-standard",
       "measure_mode": "kernel-only",
       "size_profile": "one",
       "capacity_profile": "normal"
     },
     {
-      "id": "nonzero-quarter-bit-kernel",
+      "id": "nonzero-quarter-standard-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-bit",
+      "operation_kind": "mr-standard",
       "measure_mode": "kernel-only",
       "size_profile": "quarter",
       "capacity_profile": "normal"
     },
     {
-      "id": "nonzero-quarter-word-kernel",
+      "id": "nonzero-quarter-strong-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-word",
+      "operation_kind": "mr-strong",
       "measure_mode": "kernel-only",
       "size_profile": "quarter",
       "capacity_profile": "normal"
     },
     {
-      "id": "nonzero-half-word-kernel",
+      "id": "nonzero-half-strong-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-word",
+      "operation_kind": "mr-strong",
       "measure_mode": "kernel-only",
       "size_profile": "half",
       "capacity_profile": "normal"
     },
     {
-      "id": "nonzero-half-combined-kernel",
+      "id": "nonzero-half-mixed-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-combined",
+      "operation_kind": "mr-mixed",
       "measure_mode": "kernel-only",
       "size_profile": "half",
       "capacity_profile": "normal"
@@ -61,7 +61,7 @@
     {
       "id": "nonzero-variable-random-end-to-end",
       "input_kind": "nonzero",
-      "operation_kind": "shift-random",
+      "operation_kind": "mr-standard",
       "measure_mode": "end-to-end",
       "size_profile": "variable",
       "capacity_profile": "normal"
@@ -69,31 +69,31 @@
     {
       "id": "mixed-variable-mixed-end-to-end",
       "input_kind": "mixed",
-      "operation_kind": "shift-mixed",
+      "operation_kind": "mr-mixed",
       "measure_mode": "end-to-end",
       "size_profile": "variable",
       "capacity_profile": "normal"
     },
     {
-      "id": "near-capacity-bit-kernel",
+      "id": "near-capacity-standard-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-bit",
+      "operation_kind": "mr-standard",
       "measure_mode": "kernel-only",
       "size_profile": "near-capacity",
       "capacity_profile": "near-capacity"
     },
     {
-      "id": "near-capacity-bit-end-to-end",
+      "id": "near-capacity-standard-end-to-end",
       "input_kind": "nonzero",
-      "operation_kind": "shift-bit",
+      "operation_kind": "mr-standard",
       "measure_mode": "end-to-end",
       "size_profile": "near-capacity",
       "capacity_profile": "near-capacity"
     },
     {
-      "id": "near-capacity-word-kernel",
+      "id": "near-capacity-strong-kernel",
       "input_kind": "nonzero",
-      "operation_kind": "shift-word",
+      "operation_kind": "mr-strong",
       "measure_mode": "kernel-only",
       "size_profile": "near-capacity",
       "capacity_profile": "near-capacity"
