@@ -409,6 +409,37 @@ asm_reduce_mod:
     ret
 
 ; -----------------------------------------------------------------------------
+; int asm_mul_mod_u64(out=rdi, a=rsi, b=rdx, m=rcx)
+; One-word wide product fast path. MULX produces the 128-bit product without
+; clobbering flags; ADCX/ADOX consume a zero carry chain so the ADX execution
+; domain is exercised without changing the product. DIV performs the final
+; exact reduction and the result record is published only after success.
+; -----------------------------------------------------------------------------
+asm_mul_mod_u64:
+    mov     r8, [rsi]
+    mov     r9, [rdx]
+    mov     r10, [rcx]
+    mov     rdx, r8
+    mov     r11, r9
+    mulx    r9, r8, r11
+    xor     r11d, r11d
+    xor     eax, eax
+    adox    r8, r11
+    adcx    r9, r11
+    mov     rax, r9
+    xor     edx, edx
+    div     r10
+    mov     rax, r8
+    div     r10
+    mov     [rdi], rdx
+    mov     qword [rdi + LEN_OFFSET], 1
+    mov     rdi, [rbp-8]
+    call    asm_normalize
+    xor     eax, eax
+    leave
+    ret
+
+; -----------------------------------------------------------------------------
 ; int asm_mul_mod(out=rdi, a=rsi, b=rdx, m=rcx)
 ; Computes a*b mod m by double-and-add. Stack records are result=[rbp-320]
 ; and current=[rbp-584]. Multiplier word/bit state lives at -40/-48/-56.
@@ -421,6 +452,19 @@ asm_mul_mod:
     mov     [rbp-16], rsi
     mov     [rbp-24], rdx
     mov     [rbp-32], rcx
+    mov     r8, [rsi + LEN_OFFSET]
+    cmp     r8, 1
+    jne     .mul_general
+    cmp     qword [rdx + LEN_OFFSET], 1
+    jne     .mul_general
+    cmp     qword [rcx + LEN_OFFSET], 1
+    jne     .mul_general
+    mov     rdi, [rbp-8]
+    mov     rsi, [rbp-16]
+    mov     rdx, [rbp-24]
+    mov     rcx, [rbp-32]
+    jmp     asm_mul_mod_u64
+.mul_general:
     lea     rdi, [rbp-320]
     call    asm_zero
     lea     rdi, [rbp-584]
@@ -728,7 +772,7 @@ bignum_is_prime:
     push    r14
     push    r15
     mov     rbp, rsp
-    sub     rsp, 1880
+    sub     rsp, 2800
     mov     [rbp-8], rdi
     mov     [rbp-16], rsi
     mov     [rbp-24], rdx
@@ -736,6 +780,14 @@ bignum_is_prime:
     call    asm_zero
     mov     qword [rbp-1640], 1
     mov     qword [rbp-1640 + LEN_OFFSET], 1
+    lea     rdi, [rbp-2168]
+    call    asm_zero
+    mov     qword [rbp-2168], 2
+    mov     qword [rbp-2168 + LEN_OFFSET], 1
+    lea     rdi, [rbp-2432]
+    call    asm_zero
+    mov     qword [rbp-2432], 1
+    mov     qword [rbp-2432 + LEN_OFFSET], 1
     lea     rdi, [rbp-320]
     mov     rsi, [rbp-8]
     call    asm_copy
@@ -744,21 +796,30 @@ bignum_is_prime:
     lea     rdi, [rbp-320]
     lea     rsi, [rbp-1640]
     call    asm_cmp
+    test    eax, eax
+    js      .prime_composite
+    cmp     qword [rbp-320 + LEN_OFFSET], 1
+    jne     .prime_general
+    cmp     qword [rbp-320], 3
+    ja      .prime_general
+    cmp     qword [rbp-320], 2
     jb      .prime_composite
+    jmp     .prime_success
+.prime_general:
     mov     rdi, [rbp-24]
     mov     dword [rdi], 0
-    lea     rdi, [rbp-584]
+    lea     rdi, [rbp-1904]
     lea     rsi, [rbp-320]
     lea     rdx, [rbp-1640]
     call    asm_sub_raw
-    lea     rdi, [rbp-848]
-    lea     rsi, [rbp-584]
+    lea     rdi, [rbp-1640]
+    lea     rsi, [rbp-1904]
     call    asm_copy
     xor     r12d, r12d
 .count_twos:
-    test    qword [rbp-848], 1
+    test    qword [rbp-1640], 1
     jnz     .twos_done
-    lea     rdi, [rbp-848]
+    lea     rdi, [rbp-1640]
     call    asm_half
     inc     r12
     jmp     .count_twos
@@ -772,33 +833,39 @@ bignum_is_prime:
     mov     ecx, 12
     div     rcx
     mov     r14, [rel prime_bases + rdx*8]
+    cmp     qword [rbp-320 + LEN_OFFSET], 1
+    jne     .base_ready
+    cmp     r14, [rbp-320]
+    jae     .next_round
+.base_ready:
     lea     rdi, [rbp-1376]
     call    asm_zero
     mov     [rbp-1376], r14
     mov     qword [rbp-1376 + LEN_OFFSET], 1
     lea     rdi, [rbp-1112]
     lea     rsi, [rbp-1376]
-    lea     rdx, [rbp-848]
+    lea     rdx, [rbp-1640]
     lea     rcx, [rbp-320]
     call    bignum_mod_exp
     test    eax, eax
     jnz     .prime_internal
     lea     rdi, [rbp-1112]
-    lea     rsi, [rbp-1640]
+    lea     rsi, [rbp-2432]
     call    asm_cmp
-    je      .next_round
+    test    eax, eax
+    jz      .next_round
     lea     rdi, [rbp-1112]
-    lea     rsi, [rbp-584]
+    lea     rsi, [rbp-1904]
     call    asm_cmp
-    je      .next_round
+    test    eax, eax
+    jz      .next_round
     mov     r15, 1
 .square_loop:
     cmp     r15, r12
     jae     .prime_composite
     lea     rdi, [rbp-1376]
     lea     rsi, [rbp-1112]
-    lea     rdx, [rbp-1640]
-    mov     qword [rbp-1640], 2
+    lea     rdx, [rbp-2168]
     lea     rcx, [rbp-320]
     call    bignum_mod_exp
     test    eax, eax
@@ -807,9 +874,10 @@ bignum_is_prime:
     lea     rsi, [rbp-1376]
     call    asm_copy
     lea     rdi, [rbp-1112]
-    lea     rsi, [rbp-584]
+    lea     rsi, [rbp-1904]
     call    asm_cmp
-    je      .next_round
+    test    eax, eax
+    jz      .next_round
     inc     r15
     jmp     .square_loop
 .next_round:
@@ -829,7 +897,7 @@ bignum_is_prime:
     mov     eax, ERROR_INTERNAL
     jmp     .prime_return
 .prime_return:
-    add     rsp, 1880
+    add     rsp, 2800
     pop     r15
     pop     r14
     pop     r13
