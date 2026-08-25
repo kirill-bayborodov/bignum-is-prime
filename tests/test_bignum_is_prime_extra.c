@@ -1,18 +1,26 @@
 /**
  * @file test_bignum_is_prime_extra.c
- * @brief Randomized and robustness tests for the C11 primality reference.
+ * @brief Randomized, robustness, and internal arithmetic tests for C11 reference.
  * @details
- * A fixed xorshift state starts at 0x0123456789abcdef and generates exactly
- * 2,000 values in [0, 100000). Each result is compared with the independent
- * trial-division oracle. A mismatch aborts through assert, preserving the
- * failing deterministic sequence for reproduction. Additional cases verify
- * padded input normalization and output atomicity on invalid arguments.
+ * The public randomized section uses fixed xorshift state
+ * 0x0123456789abcdef and exactly 2,000 values in [0, 100000), comparing every
+ * result with an independent trial-division oracle. The internal section
+ * includes the C11 implementation with its public symbol renamed and directly
+ * checks modular carry/reduction, aliasing, multiplication, halving,
+ * square-and-multiply, and both Miller--Rabin witness outcomes. Assertions
+ * abort on failure, preserving deterministic reproduction without allocation.
  */
 #include "bignum_is_prime.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#define static
+#define bignum_is_prime bignum_is_prime_internal_for_test
+#include "../src/bignum_is_prime.c"
+#undef bignum_is_prime
+#undef static
 
 /** @brief Advances the fixed deterministic pseudo-random generator. */
 static uint64_t next_value(uint64_t *state)
@@ -34,7 +42,7 @@ static int reference_u64(uint64_t number)
     return 1;
 }
 
-/** @brief Compares 2,000 fixed-seed generated values with the trial-division oracle. */
+/** @brief Compares 2,000 fixed-seed values with the trial-division oracle. */
 static void test_randomized_small_values(void)
 {
     uint64_t state = UINT64_C(0x0123456789abcdef);
@@ -47,7 +55,7 @@ static void test_randomized_small_values(void)
     }
 }
 
-/** @brief Verifies padded records are accepted without modifying caller storage. */
+/** @brief Verifies padded records and output atomicity on invalid rounds. */
 static void test_normalization_and_guards(void)
 {
     bignum_t number = { .words = { 101U }, .len = 4U };
@@ -61,11 +69,58 @@ static void test_normalization_and_guards(void)
     assert(result == 91);
 }
 
-/** @brief Runs deterministic randomized and robustness scenarios. */
+/** @brief Builds a one-word temporary for direct helper checks. */
+static bignum_t helper_word(uint64_t value)
+{
+    bignum_t result = { .words = { value }, .len = value == 0U ? 0U : 1U };
+    return result;
+}
+
+/** @brief Exercises modular carry, reduction, multiplication, and halving. */
+static void test_arithmetic_helpers(void)
+{
+    bignum_t left = helper_word(10U), right = helper_word(9U), modulus = helper_word(17U), result;
+    assert(compare(&left, &right) > 0);
+    subtract(&left, &right, &result);
+    assert(result.words[0] == 1U && result.len == 1U);
+    double_mod(&right, &modulus, &result);
+    assert(result.words[0] == 1U);
+    add_mod(&left, &right, &modulus, &result);
+    assert(result.words[0] == 2U);
+    multiply_mod(&left, &right, &modulus, &result);
+    assert(result.words[0] == 5U);
+    halve(&left);
+    assert(left.words[0] == 5U);
+    left = helper_word(UINT64_C(1) << 63U);
+    right = helper_word(UINT64_C(1) << 63U);
+    modulus = helper_word(UINT64_MAX - 58U);
+    double_mod(&left, &modulus, &result);
+    assert(result.words[0] == 59U);
+    add_mod(&left, &right, &modulus, &result);
+    assert(result.words[0] == 59U);
+}
+
+/** @brief Exercises square-and-multiply and both witness return paths. */
+static void test_power_and_witness(void)
+{
+    bignum_t base = helper_word(5U), exponent = helper_word(13U), modulus = helper_word(17U), result;
+    power_mod(&base, &exponent, &modulus, &result);
+    assert(result.words[0] == 3U);
+    exponent = helper_word(7U);
+    modulus = helper_word(15U);
+    assert(witness(&modulus, &exponent, 0U, 2U) == 0);
+    exponent = helper_word(1U);
+    modulus = helper_word(17U);
+    assert(witness(&modulus, &exponent, 4U, 3U) == 1);
+}
+
+/** @brief Runs randomized, robustness, and direct arithmetic scenarios. */
 int main(void)
 {
     test_randomized_small_values();
     test_normalization_and_guards();
+    test_arithmetic_helpers();
+    test_power_and_witness();
     puts("bignum_is_prime extra tests: OK");
     return 0;
 }

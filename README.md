@@ -53,9 +53,9 @@ Required tools are GCC, YASM, Make, cppcheck, Valgrind, pthreads, and the CI-com
 
 ## Implementation stages
 
-The C11 source in `src/bignum_is_prime.c` is the correctness reference and baseline implementation. It contains bounded modular arithmetic and deterministic 64-bit Miller–Rabin bases, while larger operands use the fixed-capacity Miller–Rabin path. The assembly source in `src/bignum_is_prime.asm` is selected with `USE_ASM=yes`; it preserves the System V AMD64 ABI and provides an optimized validation, small-operand, parity, and small-divisor path.
+The C11 source in `src/bignum_is_prime.c` is the correctness reference and baseline implementation. It contains bounded modular arithmetic and deterministic 64-bit Miller–Rabin bases, while larger operands use the fixed-capacity Miller–Rabin path. The assembly source in `src/bignum_is_prime.asm` is selected with `USE_ASM=yes`; it preserves the System V AMD64 ABI and contains a self-contained bounded modular reduction, modular addition, double-and-add multiplication, square-and-multiply exponentiation, and Miller–Rabin witness loop for one- and multiword operands.
 
-The C11 implementation is not synchronized with the assembly candidate. Both implementations are tested against the same public contract. Any future optimization must preserve the API, input immutability, status codes, and benchmark protocol.
+The C11 implementation is not synchronized with the assembly candidate. Both implementations are tested against the same public contract. The assembly implementation is optimized independently from the C11 baseline; both must preserve the API, input immutability, status codes, and benchmark protocol. Performance comparisons are valid only after semantic tests pass for the same operands.
 
 ## Tests and coverage
 
