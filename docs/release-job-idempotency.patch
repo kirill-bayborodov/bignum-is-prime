@@ -1,0 +1,32 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 81930c2..6972826 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -132,7 +132,23 @@ jobs:
+       env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+       run: |
+-        gh release create ${{ github.ref_name }} \
+-          --title "${{ github.ref_name }}" \
+-          --notes "Release for ${{ github.ref_name }}" \
+-          ${{ steps.dist.outputs.archive }}
++        set -euo pipefail
++        TAG="${{ github.ref_name }}"
++        ARCHIVE="${{ steps.dist.outputs.archive }}"
++
++        if gh release view "$TAG" >/dev/null 2>&1; then
++          echo "Release $TAG already exists; replacing its generated asset."
++          gh release upload "$TAG" "$ARCHIVE" --clobber
++        else
++          if ! gh release create "$TAG" \
++            --title "$TAG" \
++            --notes "Release for $TAG" \
++            "$ARCHIVE"; then
++            # A concurrent tag workflow may have created the release after the
++            # view check. Make the retry idempotent and race-tolerant.
++            gh release view "$TAG" >/dev/null
++            gh release upload "$TAG" "$ARCHIVE" --clobber
++          fi
++        fi
++
++        gh release view "$TAG" >/dev/null

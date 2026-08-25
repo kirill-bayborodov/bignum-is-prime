@@ -41,6 +41,7 @@ static void test_small_values(void)
     }
     expect_u64(5U, 1); expect_u64(7U, 1); expect_u64(11U, 1);
     expect_u64(13U, 1); expect_u64(17U, 1); expect_u64(19U, 1);
+    expect_u64(23U, 1); expect_u64(29U, 1); expect_u64(31U, 1); expect_u64(37U, 1);
     expect_u64(4U, 0); expect_u64(9U, 0); expect_u64(15U, 0);
     expect_u64(21U, 0); expect_u64(25U, 0); expect_u64(49U, 0);
 }
@@ -50,6 +51,8 @@ static void test_large_words(void)
 {
     expect_u64(UINT64_C(18446744073709551557), 1);
     expect_u64(UINT64_C(18446744073709551555), 0);
+    expect_u64(UINT64_C(18446744073709551615), 0);
+    expect_u64(UINT64_C(1022117), 0); /* 1009 * 1013; no divisor in 3..37. */
     expect_u64(UINT64_C(4294967291), 1);
     expect_u64(UINT64_C(4294967295), 0);
 }
@@ -66,6 +69,10 @@ static void test_multword(void)
     assert(bignum_is_prime(&number, 8U, &result) == BIGNUM_IS_PRIME_SUCCESS);
     assert(result == 0);
 
+    /* 2^64 + 1 = 641 * 6700417; it reaches the multiword witness path. */
+    number = (bignum_t){ .words = { 1U, 1U }, .len = 2U };
+    assert(bignum_is_prime(&number, 8U, &result) == BIGNUM_IS_PRIME_SUCCESS);
+    assert(result == 0);
 
     /* (2^32 + 1)^2 = 2^64 + 2^33 + 1; it avoids the 3..37 prefilter. */
     number.words[0] = 1U;
@@ -73,6 +80,11 @@ static void test_multword(void)
     number.words[2] = 1U;
     number.len = 3U;
     assert(bignum_is_prime(&number, 12U, &result) == BIGNUM_IS_PRIME_SUCCESS);
+    assert(result == 0);
+
+    /* Exercise a multiword even fast rejection. */
+    number = (bignum_t){ .words = { 0U, 1U }, .len = 2U };
+    assert(bignum_is_prime(&number, 8U, &result) == BIGNUM_IS_PRIME_SUCCESS);
     assert(result == 0);
 
     /* Exercise carry-sensitive operands near the top of two words. */

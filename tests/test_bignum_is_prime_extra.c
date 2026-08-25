@@ -130,6 +130,20 @@ static void test_low_level_helpers(void)
     assert(powmod_u64(5U, 13U, 17U) == 3U);
 }
 
+/**
+ * @brief Exercises deterministic one-word Miller--Rabin helper vectors.
+ * @details The vectors cover candidates after the public small-value fast path:
+ * odd-component decomposition, repeated squaring, accepted witnesses,
+ * deterministic rejection, and high-bit uint64 inputs.
+ */
+static void test_u64_miller_rabin_vectors(void)
+{
+    assert(is_prime_u64(UINT64_C(97)) == 1);
+    assert(is_prime_u64(UINT64_C(1022117)) == 0); /* 1009 * 1013. */
+    assert(is_prime_u64(UINT64_C(18446744073709551557)) == 1);
+    assert(is_prime_u64(UINT64_C(0xffffffffffffffff)) == 0);
+}
+
 /** @brief Exercises square-and-multiply and both witness return paths. */
 static void test_power_and_witness(void)
 {
@@ -151,6 +165,7 @@ int main(void)
     test_normalization_and_guards();
     test_arithmetic_helpers();
     test_low_level_helpers();
+    test_u64_miller_rabin_vectors();
     test_power_and_witness();
     puts("bignum_is_prime extra tests: OK");
     return 0;
