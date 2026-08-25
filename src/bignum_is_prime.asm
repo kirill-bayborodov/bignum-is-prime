@@ -692,10 +692,22 @@ asm_mont_mul:
     jmp .copy
 .copy_done:
     mov [rdi+256],r12
+
+    ; A non-zero T[2n] is a carry above the copied n-limb candidate.
+    ; In that case subtraction of M is mandatory even if candidate < M:
+    ; (2^(64n) + candidate) - M equals candidate-M modulo 2^(64n).
+    mov rax,r12
+    shl rax,4
+    lea rsi,[rbp-600]
+    add rsi,rax
+    cmp qword [rsi],0
+    jne .reduce_overflow
+
     mov rsi,[rbp-32]
     call asm_cmp
     test eax,eax
     js .mont_done
+.reduce_overflow:
     mov rsi,[rbp-8]
     mov rdx,[rbp-32]
     call asm_sub_raw
