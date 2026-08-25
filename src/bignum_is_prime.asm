@@ -411,10 +411,10 @@ asm_reduce_mod:
 
 ; -----------------------------------------------------------------------------
 ; int asm_mul_mod_u64(out=rdi, a=rsi, b=rdx, m=rcx)
-; One-word wide product fast path. MULX produces the 128-bit product without
-; clobbering flags; ADCX/ADOX consume a zero carry chain so the ADX execution
-; domain is exercised without changing the product. DIV performs the final
-; exact reduction and the result record is published only after success.
+; One-word wide product fast path. MUL produces the 128-bit product in
+; RDX:RAX and is available on baseline x86-64 without BMI2/ADX requirements.
+; DIV performs the final exact reduction and the result record is published
+; only after success.
 ; -----------------------------------------------------------------------------
 asm_mul_mod_u64:
     mov     r8, [rsi]
@@ -422,11 +422,10 @@ asm_mul_mod_u64:
     mov     r10, [rcx]
     mov     rdx, r8
     mov     r11, r9
-    mulx    r9, r8, r11
-    xor     r11d, r11d
-    xor     eax, eax
-    adox    r8, r11
-    adcx    r9, r11
+    mov     rax, rdx
+    mul     r11
+    mov     r8, rax
+    mov     r9, rdx
     mov     rax, r9
     xor     edx, edx
     div     r10
@@ -596,7 +595,10 @@ asm_mont_mul:
     jae .mc
     mov rdx,r14
     mov rsi,[rbp-24]
-    mulx r9,r8,[rsi+r15*8]
+    mov rax,rdx
+    mul qword [rsi+r15*8]
+    mov r8,rax
+    mov r9,rdx
     mov rax,r13
     add rax,r15
     shl rax,3
@@ -645,7 +647,10 @@ asm_mont_mul:
     jae .rc
     mov rdx,[rbp-56]
     mov rsi,[rbp-32]
-    mulx r9,r8,[rsi+r15*8]
+    mov rax,rdx
+    mul qword [rsi+r15*8]
+    mov r8,rax
+    mov r9,rdx
     mov rax,r13
     add rax,r15
     shl rax,3
