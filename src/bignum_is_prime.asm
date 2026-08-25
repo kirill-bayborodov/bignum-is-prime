@@ -47,6 +47,7 @@ DEFAULT REL
 SECTION .text
 
 global bignum_mod_exp
+    global asm_mont_mul
 
 ; -----------------------------------------------------------------------------
 ; int asm_overlap(const void *a=rdi, const void *b=rsi)
@@ -536,6 +537,189 @@ asm_mul_mod:
 .failure:
     mov     eax, ERROR_INTERNAL
     leave
+    ret
+
+; -----------------------------------------------------------------------------
+; Dynamic variable-precision Montgomery multiplication/REDC, n <= 32.
+; Inputs are reduced little-endian records and modulus is odd.
+; -----------------------------------------------------------------------------
+asm_mont_mul:
+    push rbp
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    mov rbp,rsp
+    sub rsp,1400
+    mov [rbp-8],rdi
+    mov [rbp-16],rsi
+    mov [rbp-24],rdx
+    mov [rbp-32],rcx
+    lea rdi,[rbp-600]
+    xor eax,eax
+    mov ecx,65
+    rep stosq
+    mov r11,[rbp-32]
+    mov r12,[r11+256]
+    cmp r12,32
+    ja .fail
+    test r12,r12
+    jz .fail
+    test byte [r11],1
+    jz .fail
+    mov [rbp-40],r12
+    mov r8,1
+    mov r9,[r11]
+    mov ecx,6
+.inv:
+    mov rax,r9
+    imul rax,r8
+    neg rax
+    add rax,2
+    imul r8,rax
+    dec ecx
+    jnz .inv
+    neg r8
+    mov [rbp-48],r8
+    xor r13d,r13d
+.mi:
+    cmp r13,[rbp-40]
+    jae .red
+    mov rsi,[rbp-16]
+    mov r14,[rsi+r13*8]
+    xor r15d,r15d
+    xor ebx,ebx
+    xor r10d,r10d
+.mj:
+    cmp r15,[rbp-40]
+    jae .mc
+    mov rdx,r14
+    mov rsi,[rbp-24]
+    mulx r9,r8,[rsi+r15*8]
+    mov rax,r13
+    add rax,r15
+    shl rax,3
+    lea rdi,[rbp-600]
+    add rdi,rax
+    add r8,[rdi]
+    adc r9,0
+    add r8,rbx
+    adc r9,0
+    add r8,r10
+    adc r9,0
+    setc r10b
+    mov [rdi],r8
+    mov rbx,r9
+    inc r15
+    jmp .mj
+.mc:
+    mov rax,r13
+    add rax,[rbp-40]
+    shl rax,3
+    lea rdi,[rbp-600]
+    add rdi,rax
+    add [rdi],rbx
+    adc qword [rdi+8],0
+    add qword [rdi+8],r10
+    adc qword [rdi+16],0
+    inc r13
+    jmp .mi
+.red:
+    xor r13d,r13d
+.ri:
+    cmp r13,[rbp-40]
+    jae .out
+    lea rdi,[rbp-600]
+    mov rax,r13
+    shl rax,3
+    add rdi,rax
+    mov rax,[rdi]
+    imul rax,[rbp-48]
+    mov [rbp-56],rax
+    xor ebx,ebx
+    xor r10d,r10d
+    xor r15d,r15d
+.rj:
+    cmp r15,[rbp-40]
+    jae .rc
+    mov rdx,[rbp-56]
+    mov rsi,[rbp-32]
+    mulx r9,r8,[rsi+r15*8]
+    mov rax,r13
+    add rax,r15
+    shl rax,3
+    lea rdi,[rbp-600]
+    add rdi,rax
+    add r8,[rdi]
+    adc r9,0
+    add r8,rbx
+    adc r9,0
+    add r8,r10
+    adc r9,0
+    setc r10b
+    mov [rdi],r8
+    mov rbx,r9
+    inc r15
+    jmp .rj
+.rc:
+    mov rax,r13
+    add rax,[rbp-40]
+    shl rax,3
+    lea rdi,[rbp-600]
+    add rdi,rax
+    add [rdi],rbx
+    adc qword [rdi+8],0
+    add qword [rdi+8],r10
+    adc qword [rdi+16],0
+    inc r13
+    jmp .ri
+.out:
+    mov rdi,[rbp-8]
+    mov r12,[rbp-40]
+    xor r13d,r13d
+.copy:
+    cmp r13,r12
+    jae .copy_done
+    mov rax,r12
+    add rax,r13
+    shl rax,3
+    lea rsi,[rbp-600]
+    add rsi,rax
+    mov rax,[rsi]
+    mov [rdi+r13*8],rax
+    inc r13
+    jmp .copy
+.copy_done:
+    mov [rdi+256],r12
+    mov rsi,[rbp-32]
+    call asm_cmp
+    test eax,eax
+    js .mont_done
+    mov rsi,[rbp-8]
+    mov rdx,[rbp-32]
+    call asm_sub_raw
+.mont_done:
+    mov rdi,[rbp-8]
+    call asm_normalize
+    add rsp,1400
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    pop rbp
+    xor eax,eax
+    ret
+.fail:
+    mov eax,-6
+    add rsp,1400
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    pop rbp
     ret
 
 ; -----------------------------------------------------------------------------
