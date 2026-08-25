@@ -15,7 +15,14 @@
 #define PRIME_WORD_BITS 64U
 #define PRIME_BASE_COUNT 12U
 
-/** @brief Compares two normalized non-negative bignum values. */
+/**
+ * @brief Compares two normalized non-negative bignum values.
+ * @details Inputs are borrowed and unchanged; length and words are compared
+ * from most significant to least significant. Complexity is O(n).
+ * @param[in] left Normalized borrowed value.
+ * @param[in] right Normalized borrowed value.
+ * @return Negative, zero, or positive according to left/right ordering.
+ */
 static int compare(const bignum_t *left, const bignum_t *right)
 {
     if (left->len != right->len) return left->len < right->len ? -1 : 1;
@@ -27,19 +34,32 @@ static int compare(const bignum_t *left, const bignum_t *right)
     return 0;
 }
 
-/** @brief Removes zero words above the normalized most-significant word. */
+/**
+ * @brief Removes zero words above the normalized most-significant word.
+ * @details This mutates only the caller-owned temporary value and preserves all
+ * significant words. Complexity is O(n) in the number of removed words.
+ * @param[in,out] value Caller-owned temporary with len in capacity.
+ */
 static void normalize(bignum_t *value)
 {
     while (value->len > 0U && value->words[value->len - 1U] == 0U) --value->len;
 }
 
-/** @brief Reports whether a bignum value is zero. */
+/**
+ * @brief Reports whether a normalized bignum value is zero.
+ * @param[in] value Borrowed normalized value; it is unchanged.
+ * @return Non-zero when len is zero, otherwise zero.
+ */
 static int is_zero(const bignum_t *value)
 {
     return value->len == 0U;
 }
 
-/** @brief Sets a bignum value to one. */
+/**
+ * @brief Sets a caller-owned bignum temporary to one.
+ * @details The complete fixed-capacity record is cleared before publication.
+ * @param[out] value Caller-owned output record; non-NULL and writable.
+ */
 static void set_one(bignum_t *value)
 {
     memset(value, 0, sizeof(*value));
@@ -47,7 +67,12 @@ static void set_one(bignum_t *value)
     value->len = 1U;
 }
 
-/** @brief Sets a bignum value from a 64-bit word. */
+/**
+ * @brief Sets a caller-owned bignum temporary from one 64-bit word.
+ * @details Zero is represented canonically with len zero.
+ * @param[out] value Caller-owned output record; non-NULL and writable.
+ * @param[in] word Unsigned source word; no ownership is transferred.
+ */
 static void set_u64(bignum_t *value, uint64_t word)
 {
     memset(value, 0, sizeof(*value));
@@ -57,16 +82,25 @@ static void set_u64(bignum_t *value, uint64_t word)
     }
 }
 
-/** @brief Subtracts right from left when left is greater than or equal to right. */
+/**
+ * @brief Subtracts right from left under the caller-checked ordering invariant.
+ * @details The routine uses bounded borrow arithmetic, normalizes the result,
+ * and assumes left is at least right; violating that invariant is a bug.
+ * @param[in] left Borrowed minuend, unchanged.
+ * @param[in] right Borrowed subtrahend no greater than left, unchanged.
+ * @param[out] result Caller-owned non-aliasing output record.
+ */
 static void subtract(const bignum_t *left, const bignum_t *right, bignum_t *result)
 {
+    const bignum_t minuend = *left;
+    const bignum_t subtrahend_value = *right;
     uint64_t borrow = 0U;
     memset(result, 0, sizeof(*result));
-    result->len = left->len;
-    for (size_t index = 0U; index < left->len; ++index) {
-        const uint64_t subtrahend = (index < right->len ? right->words[index] : 0U);
-        const uint64_t first = left->words[index] - subtrahend;
-        const uint64_t first_borrow = left->words[index] < subtrahend;
+    result->len = minuend.len;
+    for (size_t index = 0U; index < minuend.len; ++index) {
+        const uint64_t subtrahend = (index < subtrahend_value.len ? subtrahend_value.words[index] : 0U);
+        const uint64_t first = minuend.words[index] - subtrahend;
+        const uint64_t first_borrow = minuend.words[index] < subtrahend;
         const uint64_t second = first - borrow;
         const uint64_t second_borrow = first < borrow;
         result->words[index] = second;
@@ -75,22 +109,31 @@ static void subtract(const bignum_t *left, const bignum_t *right, bignum_t *resu
     normalize(result);
 }
 
-/** @brief Doubles a modular value and reduces it without overflowing. */
+/**
+ * @brief Doubles a modular value and reduces it without overflowing.
+ * @details The carry branch computes x-(modulus-x), preserving the mathematical
+ * result when the fixed word array overflows. Inputs are reduced and result is
+ * written atomically after bounded arithmetic. Complexity is O(n).
+ * @param[in] value Borrowed value in [0, modulus).
+ * @param[in] modulus Borrowed positive modulus.
+ * @param[out] result Caller-owned output; it may alias value.
+ */
 static void double_mod(const bignum_t *value, const bignum_t *modulus,
                        bignum_t *result)
 {
+    const bignum_t input = *value;
     uint64_t carry = 0U;
     memset(result, 0, sizeof(*result));
-    result->len = value->len;
-    for (size_t index = 0U; index < value->len; ++index) {
-        const uint64_t word = value->words[index];
+    result->len = input.len;
+    for (size_t index = 0U; index < input.len; ++index) {
+        const uint64_t word = input.words[index];
         result->words[index] = (word << 1U) | carry;
         carry = word >> 63U;
     }
     if (carry != 0U) {
         bignum_t difference;
-        subtract(modulus, value, &difference);
-        subtract(value, &difference, result);
+        subtract(modulus, &input, &difference);
+        subtract(&input, &difference, result);
     } else if (compare(result, modulus) >= 0) {
         bignum_t reduced;
         subtract(result, modulus, &reduced);
@@ -98,7 +141,15 @@ static void double_mod(const bignum_t *value, const bignum_t *modulus,
     }
 }
 
-/** @brief Adds two modular values and reduces the bounded sum. */
+/**
+ * @brief Adds two modular values and reduces the bounded sum.
+ * @details Complement comparison avoids a carry beyond fixed capacity; inputs
+ * must be below modulus. Complexity is O(n).
+ * @param[in] left Borrowed reduced addend.
+ * @param[in] right Borrowed reduced addend.
+ * @param[in] modulus Borrowed positive modulus.
+ * @param[out] result Caller-owned output record.
+ */
 static void add_mod(const bignum_t *left, const bignum_t *right,
                     const bignum_t *modulus, bignum_t *result)
 {
@@ -122,7 +173,15 @@ static void add_mod(const bignum_t *left, const bignum_t *right,
     }
 }
 
-/** @brief Multiplies two modular values with binary double-and-add. */
+/**
+ * @brief Multiplies two modular values with binary double-and-add.
+ * @details Every set bit adds the current modular addend and every processed bit
+ * doubles it. Inputs are borrowed; result may be published after O(n^3) work.
+ * @param[in] left Borrowed reduced multiplicand.
+ * @param[in] right Borrowed reduced multiplier.
+ * @param[in] modulus Borrowed positive modulus.
+ * @param[out] result Caller-owned output record.
+ */
 static void multiply_mod(const bignum_t *left, const bignum_t *right,
                          const bignum_t *modulus, bignum_t *result)
 {
@@ -144,7 +203,12 @@ static void multiply_mod(const bignum_t *left, const bignum_t *right,
     *result = accumulator;
 }
 
-/** @brief Divides a bignum by two in place and normalizes it. */
+/**
+ * @brief Divides a bignum by two in place and normalizes it.
+ * @details Words are traversed most-significant first so carry represents the
+ * preceding word's low bit. Complexity is O(n).
+ * @param[in,out] value Caller-owned temporary representing a non-negative value.
+ */
 static void halve(bignum_t *value)
 {
     uint64_t carry = 0U;
@@ -156,7 +220,15 @@ static void halve(bignum_t *value)
     normalize(value);
 }
 
-/** @brief Computes base^exponent modulo modulus by square-and-multiply. */
+/**
+ * @brief Computes base to exponent modulo modulus by square-and-multiply.
+ * @details Bits are consumed least-significant first; accumulator and factor
+ * remain reduced after every operation. Complexity is O(n^3 * bit_length).
+ * @param[in] base Borrowed reduced or unreduced base.
+ * @param[in] exponent Borrowed non-negative exponent.
+ * @param[in] modulus Borrowed positive modulus.
+ * @param[out] result Caller-owned output record.
+ */
 static void power_mod(const bignum_t *base, const bignum_t *exponent,
                       const bignum_t *modulus, bignum_t *result)
 {
@@ -183,7 +255,14 @@ static void power_mod(const bignum_t *base, const bignum_t *exponent,
     *result = accumulator;
 }
 
-/** @brief Computes a small-prime remainder without wide integer extensions. */
+/**
+ * @brief Computes a small-prime remainder without wide integer extensions.
+ * @details The fixed bit scan is portable C11 and uses constant extra space.
+ * Complexity is O(64n).
+ * @param[in] value Borrowed non-negative value, unchanged.
+ * @param[in] divisor Positive small divisor.
+ * @return value modulo divisor.
+ */
 static unsigned remainder_u64(const bignum_t *value, unsigned divisor)
 {
     unsigned remainder = 0U;
@@ -199,13 +278,26 @@ static unsigned remainder_u64(const bignum_t *value, unsigned divisor)
 
 __extension__ typedef unsigned __int128 prime_u128_t;
 
-/** @brief Multiplies two 64-bit values modulo a 64-bit modulus. */
+/**
+ * @brief Multiplies two 64-bit values modulo a 64-bit modulus.
+ * @param[in] left Unsigned operand below modulus.
+ * @param[in] right Unsigned operand below modulus.
+ * @param[in] modulus Positive 64-bit modulus.
+ * @return Product reduced modulo modulus.
+ */
 static uint64_t mulmod_u64(uint64_t left, uint64_t right, uint64_t modulus)
 {
     return (uint64_t)(((prime_u128_t)left * (prime_u128_t)right) % modulus);
 }
 
-/** @brief Raises a 64-bit value to a 64-bit exponent modulo a modulus. */
+/**
+ * @brief Raises a 64-bit value to a 64-bit exponent modulo a modulus.
+ * @details Uses binary exponentiation and constant temporary storage.
+ * @param[in] base Unsigned base.
+ * @param[in] exponent Unsigned exponent.
+ * @param[in] modulus Positive modulus.
+ * @return Modular power result.
+ */
 static uint64_t powmod_u64(uint64_t base, uint64_t exponent, uint64_t modulus)
 {
     uint64_t result = 1U % modulus;
@@ -218,7 +310,12 @@ static uint64_t powmod_u64(uint64_t base, uint64_t exponent, uint64_t modulus)
     return result;
 }
 
-/** @brief Performs deterministic Miller–Rabin for a 64-bit input. */
+/**
+ * @brief Performs deterministic Miller--Rabin for a 64-bit input.
+ * @details Uses the seven-base deterministic set valid for the uint64 domain.
+ * @param[in] number Candidate greater than one.
+ * @return Non-zero for prime, zero for composite.
+ */
 static int is_prime_u64(uint64_t number)
 {
     static const uint64_t bases[] = { 2U, 325U, 9375U, 28178U, 450775U, 9780504U, 1795265022U };
@@ -238,7 +335,16 @@ static int is_prime_u64(uint64_t number)
     return 1;
 }
 
-/** @brief Runs one Miller–Rabin witness round. */
+/**
+ * @brief Runs one Miller--Rabin witness round.
+ * @details A witness returning zero proves compositeness; a one means this base
+ * did not disprove probable primality. All temporaries are stack-owned.
+ * @param[in] number Borrowed odd candidate.
+ * @param[in] exponent Odd component of number-1.
+ * @param[in] powers Number of powers of two removed from number-1.
+ * @param[in] base Fixed witness base.
+ * @return Non-zero when the candidate passes this witness, otherwise zero.
+ */
 static int witness(const bignum_t *number, const bignum_t *exponent,
                    size_t powers, unsigned base)
 {

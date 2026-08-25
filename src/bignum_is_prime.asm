@@ -1,10 +1,26 @@
 ; @file bignum_is_prime.asm
 ; @brief x86-64 System V implementation of bignum_is_prime.
 ; @details
-; This optimized entry point validates the public contract, handles zero,
-; even, and one-word operands without C calls, and preserves the fixed-size
-; bignum ABI. The C11 implementation remains the reference path for the
-; correctness baseline and differential testing.
+; Boundary contract: bignum_t is 32 little-endian uint64_t words at offsets
+; 0..248 followed by a size_t len at offset 256. The borrowed input at rdi is
+; never modified; rsi is a positive rounds count; rdx is caller-allocated int*
+; output and receives 0 or 1 only on success. The function returns 0 on success,
+; -1 for NULL pointers, -2 for len > 32, and -3 for zero rounds. No allocation
+; or ownership transfer occurs. The implementation performs parity and
+; streaming small-divisor checks for multiword operands; it is a fast-path
+; candidate and must not be described as a complete multiword Miller--Rabin
+; proof until its modular exponentiation path is implemented.
+;
+; ABI: System V AMD64 arguments are rdi/rsi/rdx and rax carries the status.
+; r12 and r13 are callee-saved and are pushed/popped; rbx, rbp, r14 and r15
+; are not used. rax, rcx, r8-r11 and flags are caller-clobbered. There are no
+; calls, so no call-site stack alignment is required; the two pushes preserve
+; the return stack and are balanced on every post-prologue path. All arithmetic
+; temporaries are registers, and the output pointer is preserved in r10 across
+; DIV, which clobbers rax/rdx. Complexity is O(rounds-independent * n * 6)
+; for the multiword small-divisor gate, where n is word count; space is O(1).
+; The C11 implementation remains the correctness reference and differential
+; testing oracle.
 
 section .text
 

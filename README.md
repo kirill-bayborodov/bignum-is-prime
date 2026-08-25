@@ -15,6 +15,31 @@ bignum_is_prime_status_t bignum_is_prime(
 
 `rounds` must be positive. The function returns `BIGNUM_IS_PRIME_SUCCESS` and writes `1` for probable prime or `0` for composite. Values below two, even values, and values rejected by the deterministic small-prime prefilter are composite. `NULL` arguments, an invalid `len`, or zero rounds return a named error and leave the output result unchanged. The C11 implementation uses fixed-capacity storage and no mutable global state.
 
+A complete caller owns the input and output records, checks the named status, and performs no cleanup because the API does not allocate memory:
+
+```c
+#include "bignum_is_prime.h"
+#include <stdio.h>
+
+int main(void) {
+    bignum_t number = { .words = { 97U }, .len = 1U };
+    int result = 0;
+    bignum_is_prime_status_t status = bignum_is_prime(&number, 8U, &result);
+    if (status != BIGNUM_IS_PRIME_SUCCESS) return 1;
+    printf("probable_prime=%d\\n", result);
+    return 0;
+}
+```
+
+Build and run it from the repository root after `make build CONFIG=release USE_ASM=no`:
+
+```bash
+gcc example.c build/bignum_is_prime.o -I./include -I./libs/bignum-core/include \
+  -o example -no-pie && ./example
+```
+
+The caller retains ownership of `number` and `result`; the process owns and releases only their automatic storage.
+
 ## Repository and dependencies
 
 The repository follows the structure and conventions of `bignum-bit-test`. The required core is the `libs/bignum-core` submodule. The current CI delivers the pinned benchmark-framework distribution; it must be unpacked into `libs/benchmark-framework/dist` and used as a library. The project-owned compatibility links under `benchmarks/framework/` and `libs/benchmark-framework/build/` allow the protected Makefile to consume the downloaded tools and default profile without changing CI or Makefile.
@@ -55,7 +80,7 @@ make test_helgrind CONFIG=debug USE_ASM=yes
 
 The deterministic tests cover values below two, known small primes and composites, large one-word values, multiword values, invalid arguments, invalid lengths, zero rounds, input immutability, and randomized small values against a trial-division oracle. The multithread test proves concurrent read-only calls on independent records.
 
-For a C11 line-coverage run, build with gcov instrumentation using the normal include paths and execute `make test CONFIG=debug USE_ASM=no`; then inspect the generated `src/bignum_is_prime.c.gcov` report. Coverage is a reference-quality indicator, not a substitute for randomized differential testing.
+For a C11 line-coverage run, build with gcov instrumentation using the normal include paths and execute `make test CONFIG=debug USE_ASM=no`; then inspect the generated `bignum_is_prime.c.gcov` report in the repository root. Coverage is a reference-quality indicator, not a substitute for randomized differential testing.
 
 ## Benchmarks
 
