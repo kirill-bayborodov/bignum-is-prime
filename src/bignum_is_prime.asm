@@ -40,7 +40,7 @@ DEFAULT REL
 %define ERROR_ROUNDS   -3
 %define ERROR_MODZERO  -2
 %define ERROR_OVERLAP  -3
-%define ERROR_LENGTH   -4
+%define ERROR_LENGTH   -2
 %define ERROR_CAPACITY -5
 %define ERROR_INTERNAL -6
 
