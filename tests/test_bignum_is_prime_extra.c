@@ -76,7 +76,11 @@ static bignum_t helper_word(uint64_t value)
     return result;
 }
 
-/** @brief Exercises modular carry, reduction, multiplication, and halving. */
+/**
+ * @brief Exercises modular carry, reduction, multiplication, and halving.
+ * @details Exact one-word and high-bit inputs cover the bounded carry,
+ * reduction, modular-addition, multiplication, aliasing, and halving paths.
+ */
 static void test_arithmetic_helpers(void)
 {
     bignum_t left = helper_word(10U), right = helper_word(9U), modulus = helper_word(17U), result;
@@ -100,6 +104,32 @@ static void test_arithmetic_helpers(void)
     assert(result.words[0] == 59U);
 }
 
+/**
+ * @brief Exercises constructors, predicates, and 64-bit arithmetic helpers.
+ * @details Exact oracle values cover zero/non-zero construction, comparison,
+ * remainder, 128-bit multiplication, and binary modular exponentiation.
+ */
+static void test_low_level_helpers(void)
+{
+    bignum_t zero = helper_word(0U);
+    bignum_t one;
+    bignum_t value;
+    bignum_t sample = helper_word(12345U);
+    set_one(&one);
+    set_u64(&value, 0U);
+    assert(is_zero(&zero) != 0);
+    assert(is_zero(&one) == 0);
+    assert(value.len == 0U);
+    set_u64(&value, 42U);
+    assert(value.len == 1U && value.words[0] == 42U);
+    assert(compare(&zero, &one) < 0);
+    assert(compare(&one, &one) == 0);
+    assert(remainder_u64(&sample, 97U) == 26U);
+    assert(mulmod_u64(UINT64_C(0xfffffffffffffff0), 19U,
+                      UINT64_C(0xffffffffffffffc5)) == 817U);
+    assert(powmod_u64(5U, 13U, 17U) == 3U);
+}
+
 /** @brief Exercises square-and-multiply and both witness return paths. */
 static void test_power_and_witness(void)
 {
@@ -120,6 +150,7 @@ int main(void)
     test_randomized_small_values();
     test_normalization_and_guards();
     test_arithmetic_helpers();
+    test_low_level_helpers();
     test_power_and_witness();
     puts("bignum_is_prime extra tests: OK");
     return 0;

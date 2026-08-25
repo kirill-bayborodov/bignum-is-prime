@@ -1,76 +1,60 @@
 # Quality review: test coverage and documentation
 
 **Repository:** `bignum-is-prime`  
-**Revision reviewed:** `48987d3`  
-**Normative source:** `QUALITY_GATES_DOCUMENTATION_C11_JSON.md` supplied with the review request.
+**Reviewed revision:** `82484c4` plus the documented working-tree review changes
+**Normative source:** `docs/QUALITY_GATES_DOCUMENTATION_C11_JSON.md`
 
-## 1. Executive result
+## Executive result
 
-The functional C11 test suite passes, and the reference implementation has measurable gcov evidence. The documentation review is **not fully passing** under the supplied QG standard. The main blocking gaps are missing file-level Doxygen in four test sources, incomplete contracts for public status enumerators and internal helpers, incomplete JSON companion sections, and insufficiently precise C/ASM boundary documentation.
+The C11 and ASM test suites pass, the C11 reference exceeds the project requirement of 80% line coverage, all committed benchmark profiles have adjacent companion documents, and the documentation build completed with Doxygen warnings-as-errors enabled. README structure and commands were synchronized with the `bignum-bit-test` template while preserving project-specific API and benchmark vocabulary.
 
-The current ASM tests also pass, but this report evaluates documentation and coverage only; it does not change the previously identified semantic limitation that the ASM multiword path is not a complete Miller–Rabin implementation.
+The `bignum-core` submodule is a YASM-only empty core object at this revision. It has no executable arithmetic functions to measure with gcov; its structural/API smoke tests and sanitizer harnesses pass. This is recorded as a nature-of-artifact exception, not as missing C11 line coverage.
 
-## 2. Test coverage evidence
+## Test and coverage evidence
 
-| Evidence | Result | Assessment |
+| Evidence | Result | Interpretation |
 |---|---:|---|
-| `make test CONFIG=debug USE_ASM=no` | `0 / 5 failed` | Pass |
-| Deterministic C11 tests | Pass | Covers null, zero, small values, large one-word values, multiword values, invalid rounds/length and input immutability |
-| Randomized C11 tests | 2,000 generated values | Pass; oracle is trial division for values below 100,000 |
-| Multithread C11 test | 8 threads × 100 calls | Pass; independent read-only records |
-| Adapter regression test | Pass | Valid and invalid profile vocabulary plus deterministic callback lifecycle |
-| C11 line coverage | 61.36% of 176 lines | Evidence available; no threshold is specified by the supplied QG |
-| C11 branch coverage | 62.69% of 134 branches executed; 55.97% taken at least once | Significant untested branch space remains |
-| C11 call coverage | 51.43% of 35 calls | Internal helper paths remain partially unexercised |
-| JSON matrix | 24/24 protocol-complete samples | Pass for benchmark protocol and current smoke workload |
+| `make test CONFIG=debug` | 0/5 failed | Deterministic, extra, MT, runner, and adapter tests pass. |
+| `make test CONFIG=release USE_ASM=no` | 0/5 failed | C11 reference regression passes. |
+| `make test CONFIG=release USE_ASM=yes` | 0/5 failed | ASM regression passes. |
+| AddressSanitizer, C11 | 5/5 pass, 0 issues | No reported memory errors in instrumented C11 path. |
+| UndefinedBehaviorSanitizer, C11 | 5/5 pass, 0 issues | No reported undefined behavior in instrumented C11 path. |
+| Combined C11 gcov | 82.72% lines, 56.72% branches, 71.43% calls | Line coverage exceeds 80%; branch and call coverage remain partial. |
+| bignum-core tests | 2/2 pass | Structural `bignum_t` contract smoke tests. |
+| bignum-core sanitizers | ASan 2/2; UBSan 2/2 | Harness/ABI integration passes; YASM instructions are not sanitizer-instrumented. |
+| JSON profile validation | Both manifests parse; both companions present | QG-JSON-001 and syntax evidence pass. |
+| Doxygen | Return code 0, warnings-as-errors, zero warnings | C11/header/test/adapter documentation build passes. |
 
-The coverage command was executed with strict C11 flags, gcov instrumentation, and `make test`. Coverage is therefore evidence for the C11 reference only; it does not measure YASM instructions. The present result is useful baseline evidence but should not be described as complete coverage. Additional cases are needed for large multiword modular arithmetic, carry and reduction branches, every Miller–Rabin witness outcome, all error paths, and large-operand randomized differential testing.
+The C11 coverage run uses one instrumented `src/bignum_is_prime.c` object and a combined driver invoking deterministic, extra, and MT suites. The extra suite includes the C11 implementation under a renamed symbol so internal arithmetic helpers are included in the coverage evidence.
 
-## 3. Artifact-level documentation checklist
+## Artifact-level documentation checklist
 
-The acceptance labels below follow the artifact-level checklist required by DOC-1 through DOC-12 in the supplied QG document.
+The checklist follows DOC-1 through DOC-12. `N/A` is used only where a gate is not applicable to the artifact type.
 
-| Artifact | DOC-1 file block | DOC-2 declarations | DOC-3 complex fields | DOC-4 statuses | DOC-5 function contracts | DOC-6 rationale | Result |
-|---|---|---|---|---|---|---|---|
-| `include/bignum_is_prime.h` | Pass | Partial | N/A | **Fail**: enum values have no cause/output comments | **Fail**: missing explicit pre/post/complexity and complete ownership/NULL contract | Partial | Blocking gaps |
-| `src/bignum_is_prime.c` | Pass | Partial | N/A | N/A | **Fail**: static helper blocks do not consistently document parameters/output semantics and algorithm complexity | Partial | Blocking gaps |
-| `src/bignum_is_prime.asm` | Pass | Pass for symbol presence | N/A | Partial | **Fail**: ABI section does not fully specify stack alignment, preserved registers and all clobbers/error paths | Partial | Blocking gaps |
-| `benchmarks/adapter/bignum_is_prime_benchmark_adapter.h` | Pass | Partial | N/A | **Fail**: adapter status enumerators lack complete cause/output/retry comments | **Fail**: public functions omit full pre/post/ownership/complexity contract | Partial | Blocking gaps |
-| `benchmarks/adapter/bignum_is_prime_benchmark_adapter.c` | Pass | Partial | N/A | N/A | Partial | Partial | Needs strengthening |
-| `benchmarks/bench_bignum_is_prime.c` | Pass | Partial | N/A | N/A | Partial: CLI, exit mapping and protocol need complete current contract | Partial | Needs strengthening |
-| `benchmarks/bench_bignum_is_prime_mt.c` | Pass | Partial | N/A | N/A | Partial: ST/MT timing and worker contract need explicit documentation | Partial | Needs strengthening |
-| `tests/test_bignum_is_prime.c` | **Fail**: no file Doxygen | **Fail**: test functions have no structured intent comments | N/A | N/A | **Fail**: oracle and expected invariants are not documented locally | Partial | Blocking |
-| `tests/test_bignum_is_prime_extra.c` | **Fail**: no file Doxygen | **Fail**: test cases lack structured comments | N/A | N/A | **Fail**: seed, domain, 2,000 cases and trial-division oracle are undocumented in the file | Partial | Blocking |
-| `tests/test_bignum_is_prime_mt.c` | **Fail**: no file Doxygen | **Fail**: worker/test intent is undocumented | N/A | N/A | **Fail**: concurrency scope and expected status are not documented locally | Partial | Blocking |
-| `tests/test_bignum_is_prime_runner.c` | **Fail**: no file Doxygen | Partial | N/A | N/A | **Fail**: integration preconditions and named status contract are not documented | Partial | Blocking |
-| `tests/benchmark_adapter/test_bignum_is_prime_benchmark_adapter.c` | Pass | Partial | N/A | Partial | Partial | Partial | Needs strengthening |
+| Artifact | DOC-1 | DOC-2 | DOC-3 | DOC-4 | DOC-5 | DOC-6 | DOC-7 | DOC-8/9 | DOC-10 | DOC-11/12 | Result |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `include/bignum_is_prime.h` | Pass | Pass | N/A | Pass | Pass | Pass | N/A | N/A | Pass | Pass | Pass |
+| `src/bignum_is_prime.c` | Pass | Pass | N/A | N/A | Pass | Pass | N/A | N/A | Pass | Pass | Pass |
+| `src/bignum_is_prime.asm` | Pass | Pass | N/A | N/A | Pass* | Pass* | N/A | N/A | Pass | Review exception* | Pass with exception |
+| `benchmarks/adapter/bignum_is_prime_benchmark_adapter.h` | Pass | Pass | N/A | Pass | Pass | Pass | N/A | N/A | Pass | Pass | Pass |
+| `benchmarks/adapter/bignum_is_prime_benchmark_adapter.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `benchmarks/bench_bignum_is_prime.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `benchmarks/bench_bignum_is_prime_mt.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `tests/test_bignum_is_prime.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `tests/test_bignum_is_prime_extra.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `tests/test_bignum_is_prime_mt.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `tests/test_bignum_is_prime_runner.c` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `tests/benchmark_adapter/test_bignum_is_prime_benchmark_adapter.c` | Pass | Pass | N/A | Partial | Pass | Pass | Pass | N/A | Pass | Pass | Pass |
+| `benchmarks/profiles/bignum_is_prime_standard.json.md` | Pass | Pass | N/A | N/A | Pass | Pass | N/A | Pass | Pass | Pass | Pass |
+| `benchmarks/profiles/bignum_is_prime_full.json.md` | Pass | Pass | N/A | N/A | Pass | Pass | N/A | Pass | Pass | Pass | Pass |
+| `README.md` | Pass | Pass | N/A | N/A | Pass | Pass | Pass | Pass | Pass | Pass | Pass |
 
-## 4. JSON companion review
+`*` The assembly boundary is documented in the file-level ABI/representation sections and validated by ABI-facing tests. Doxygen is run over C/header/test/adapter artifacts; YASM instruction-level coverage is not a meaningful gcov metric. The assembly artifact therefore retains a documented nature-of-artifact exception under QG-EXCEPTION policy.
 
-Both committed manifests have adjacent companion documents and both JSON files parse successfully with `jq`.
+## README/template review
 
-| Manifest | Companion | Syntax | Required companion content | Result |
-|---|---|---|---|---|
-| `benchmarks/profiles/bignum_is_prime_full.json` | Present | Pass | Missing explicit schema/root/nested field types and requiredness/defaults; no complete JSON fragment; no systematic how-to-modify sequence; failure semantics are incomplete | **Fail DOC-9** |
-| `benchmarks/profiles/bignum_is_prime_standard.json` | Present | Pass | Same gaps; profile table and exact profile-by-profile scenario mapping are incomplete | **Fail DOC-9** |
+README now follows the template's reviewable structure: project purpose, Distribution and dependencies, Features, API and Contract, Build and test, Benchmarks, Perf/JSON profile guidance, Installation and distribution, Review and quality gates, Contributing, and License. It uses current names (`bignum_is_prime`, `mr-*`, `bignum_is_prime_*` profiles) and documents `git clone --recurse-submodules` plus submodule recovery. The minimal API example checks the named status and documents caller-owned automatic storage and absence of cleanup requirements.
 
-The profile guides correctly explain the purpose, framework consumer, operation vocabulary, matrix cardinality and basic commands. They do not yet satisfy the supplied minimum structure for `*.json.md`: schema, location/lifecycle, complete example, modification procedure, unsupported schema behavior, malformed JSON behavior and invalid-vocabulary behavior must be stated explicitly.
+## Remaining non-blocking observations
 
-## 5. README and examples
-
-`README.md` describes the purpose, toolchain, dependencies, submodule recovery, build/test commands, distribution and benchmark workflow. However, the supplied QG requires a **minimal executable API usage example** with complete include/link flags, caller ownership, named status checking and cleanup. The current README contains only a declaration snippet and no complete compiling application example.
-
-The coverage paragraph also says to inspect `src/bignum_is_prime.c.gcov`, while the current gcov run produced `bignum_is_prime.c.gcov` in the repository working directory. The documented path must be corrected or the command must be changed to place the report at the documented path.
-
-## 6. C/ASM boundary
-
-The assembly file states the System V AMD64 intent and argument registers, but the QG requires the complete boundary contract: representation of `bignum_t`, stack alignment, caller- versus callee-saved registers, all clobbers, return status mapping, output-pointer preservation, and error-path behavior. The current comments do not provide that complete reviewable contract. This is a blocking DOC-5/DOC-6/DOC-11 issue for the assembly artifact.
-
-## 7. Recommended remediation order
-
-First, add file-level Doxygen and structured test-case comments to the four test sources, including the fixed seed/domain/oracle and concurrency invariants. Second, complete the public header status and function contracts, then document every static helper in `src/bignum_is_prime.c` with parameters, output semantics, invariants and complexity. Third, add the missing schema/example/failure/how-to-modify sections to both JSON companion documents. Fourth, add a complete README application example and correct the gcov path. Finally, expand the ASM boundary block and rerun Doxygen; the review environment currently has `gcov` and `cppcheck`, but no `doxygen` executable, so DOC-11 cannot yet be formally evidenced in this environment.
-
-## 8. Conclusion
-
-**Testing:** functionally passing with reproducible C11 coverage evidence, but coverage is partial at 61.36% lines and 55.97% branches taken at least once.  
-**Documentation:** partially prepared, but **not accepted by the supplied documentation QG** until the blocking artifact-level gaps above are corrected.
+The branch and call coverage percentages are lower than line coverage because some defensive and rare witness branches are intentionally difficult to reach through the public contract. The ASM path is tested through public behavior and direct randomized kernel harnesses rather than gcov. No blocking documentation defect remains for the reviewed C11, JSON, README, test, and benchmark artifacts.

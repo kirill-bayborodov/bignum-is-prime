@@ -1,8 +1,50 @@
 # bignum-is-prime
 
-`bignum-is-prime` is a standalone C11/x86-64 YASM module that tests a non-negative `bignum_t` for probable primality with the Miller–Rabin algorithm. The public operation is read-only with respect to its input and writes the Boolean result through a caller-owned output parameter.
+[![C/ASM CI](https://github.com/kirill-bayborodov/bignum-is-prime/actions/workflows/ci.yml/badge.svg)](https://github.com/kirill-bayborodov/bignum-is-prime/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/kirill-bayborodov/bignum-is-prime?label=release)](https://github.com/kirill-bayborodov/bignum-is-prime/releases/latest)
 
-## API
+`bignum-is-prime` is a standalone C11/x86-64 YASM module that tests a non-negative fixed-capacity `bignum_t` for probable primality with the Miller–Rabin algorithm. The C11 implementation is the correctness reference; the assembly implementation is an independently optimized production path using bounded multiprecision arithmetic and a variable-precision Montgomery reduction kernel for operands up to 32 limbs.
+
+The operation borrows its input, writes the result through caller-owned storage, performs no allocation or ownership transfer, and is safe for concurrent calls when independent output objects are used. A probable-prime result is not a mathematical proof for general multiword inputs.
+
+## Features
+
+- **C11 reference path:** portable fixed-capacity arithmetic and deterministic 64-bit Miller–Rabin bases.
+- **x86-64 ASM path:** System V AMD64 ABI implementation with one-word fast paths, BMI2 `mulx`, ADX `adcx`/`adox`, bounded modular arithmetic, and Montgomery REDC support.
+- **Explicit status contract:** named `bignum_is_prime_status_t` values distinguish null arguments, invalid lengths, and zero rounds.
+- **Transactional output behavior:** invalid calls leave the output predicate unchanged; inputs are never modified.
+- **Deterministic verification:** unit, extended, multithreaded, distribution-runner, adapter, randomized oracle, and boundary tests.
+- **Reproducible benchmark protocol:** benchmark-framework-compatible ST/MT runners, JSON profiles, checksums, fingerprints, and baseline comparison reports.
+- **Review documentation:** per-artifact Quality Gate checklist, Montgomery REDC trace, benchmark comparison, and cryptographic-core coverage assessment.
+
+## Distribution and dependencies
+
+The required `bignum-core` component is included as a Git submodule. The benchmark framework distribution is consumed from `libs/benchmark-framework/dist` and is already included in the repository workspace used by CI.
+
+| Component | Location | Purpose |
+|---|---|---|
+| `bignum-core` | `libs/bignum-core` | Defines `bignum_t` and `BIGNUM_CAPACITY`. |
+| `benchmark-framework` | `libs/benchmark-framework/dist` | C11 benchmark lifecycle, matrix execution, and statistics. |
+| Project adapter | `benchmarks/adapter/` | Maps framework workload fields to Miller–Rabin operations. |
+
+Clone with the submodule:
+
+```bash
+git clone --recurse-submodules https://github.com/kirill-bayborodov/bignum-is-prime.git
+cd bignum-is-prime
+```
+
+For an existing clone, recover submodules with:
+
+```bash
+git submodule update --init --recursive
+```
+
+Required tools are GCC, YASM, GNU Make, cppcheck, pthreads, and the benchmark-framework distribution. Valgrind and a kernel-compatible `perf` binary are required only for their optional race and PMU workflows.
+
+## API and contract
+
+The public API is declared in `include/bignum_is_prime.h`:
 
 ```c
 #include "bignum_is_prime.h"
@@ -13,60 +55,64 @@ bignum_is_prime_status_t bignum_is_prime(
     int *is_prime);
 ```
 
-`rounds` must be positive. The function returns `BIGNUM_IS_PRIME_SUCCESS` and writes `1` for probable prime or `0` for composite. Values below two, even values, and values rejected by the deterministic small-prime prefilter are composite. `NULL` arguments, an invalid `len`, or zero rounds return a named error and leave the output result unchanged. The C11 implementation uses fixed-capacity storage and no mutable global state.
+| Condition | Return status | Observable result |
+|---|---|---|
+| Valid input and positive rounds | `BIGNUM_IS_PRIME_SUCCESS` | `*is_prime` is `1` for probable prime or `0` for composite; `num` is unchanged. |
+| `num == NULL` or `is_prime == NULL` | `BIGNUM_IS_PRIME_ERROR_NULL_ARG` | Output is unchanged. |
+| `num->len > BIGNUM_CAPACITY` | `BIGNUM_IS_PRIME_ERROR_BAD_LENGTH` | Output is unchanged. |
+| `rounds == 0` | `BIGNUM_IS_PRIME_ERROR_ROUNDS` | Output is unchanged. |
 
-A complete caller owns the input and output records, checks the named status, and performs no cleanup because the API does not allocate memory:
+The function is reentrant and thread-safe for independent caller-owned objects. Concurrent mutation of a borrowed input or output requires external synchronization. Time complexity is bounded by the selected implementation and grows with the number of Miller–Rabin rounds and operand limbs.
+
+A complete minimal caller checks the named status and needs no cleanup because the API does not allocate memory:
 
 ```c
 #include "bignum_is_prime.h"
 #include <stdio.h>
 
-int main(void) {
+int main(void)
+{
     bignum_t number = { .words = { 97U }, .len = 1U };
-    int result = 0;
+    int result = -1;
     bignum_is_prime_status_t status = bignum_is_prime(&number, 8U, &result);
-    if (status != BIGNUM_IS_PRIME_SUCCESS) return 1;
-    printf("probable_prime=%d\\n", result);
+
+    if (status != BIGNUM_IS_PRIME_SUCCESS) {
+        return 1;
+    }
+    printf("probable_prime=%d\n", result);
     return 0;
 }
 ```
 
-Build and run it from the repository root after `make build CONFIG=release USE_ASM=no`:
+Compile the example from the repository root after building the C11 object:
 
 ```bash
-gcc example.c build/bignum_is_prime.o -I./include -I./libs/bignum-core/include \
-  -o example -no-pie && ./example
-```
-
-The caller retains ownership of `number` and `result`; the process owns and releases only their automatic storage.
-
-## Repository and dependencies
-
-The repository follows the structure and conventions of `bignum-bit-test`. The required core is the `libs/bignum-core` submodule. The current CI delivers the pinned benchmark-framework distribution; it must be unpacked into `libs/benchmark-framework/dist` and used as a library. The project-owned compatibility links under `benchmarks/framework/` and `libs/benchmark-framework/build/` allow the protected Makefile to consume the downloaded tools and default profile without changing CI or Makefile.
-
-```bash
-git submodule update --init --recursive
 make build CONFIG=release USE_ASM=no
+gcc example.c build/bignum_is_prime.o \
+  -I./include -I./libs/bignum-core/include -o example -no-pie
+./example
+rm -f example
 ```
 
-Required tools are GCC, YASM, Make, cppcheck, Valgrind, pthreads, and the CI-compatible benchmark-framework distribution. Hardware `perf` support is host-dependent and is not required by the JSON matrix benchmark.
+## Build and test
 
-## Implementation stages
+Build the C11 reference and assembly candidate separately:
 
-The C11 source in `src/bignum_is_prime.c` is the correctness reference and baseline implementation. It contains bounded modular arithmetic and deterministic 64-bit Miller–Rabin bases, while larger operands use the fixed-capacity Miller–Rabin path. The assembly source in `src/bignum_is_prime.asm` is selected with `USE_ASM=yes`; it preserves the System V AMD64 ABI and contains a self-contained bounded modular reduction, modular addition, double-and-add multiplication, square-and-multiply exponentiation, and Miller–Rabin witness loop for one- and multiword operands.
+```bash
+make clean
+make build CONFIG=release USE_ASM=no
+make clean
+make build CONFIG=release USE_ASM=yes
+```
 
-The C11 implementation is not synchronized with the assembly candidate. Both implementations are tested against the same public contract. The assembly implementation is optimized independently from the C11 baseline; both must preserve the API, input immutability, status codes, and benchmark protocol. Performance comparisons are valid only after semantic tests pass for the same operands.
-
-## Tests and coverage
-
-Run the complete deterministic, extended, multithreaded, integration, and adapter suite for either implementation:
+Run the complete deterministic, extended, multithreaded, integration-runner, and adapter suite for each implementation:
 
 ```bash
 make test CONFIG=release USE_ASM=no
 make test CONFIG=release USE_ASM=yes
 ```
 
-Run static analysis and the template quality gates:
+Run static analysis and dynamic checks:
 
 ```bash
 make lint
@@ -78,15 +124,25 @@ make clean
 make test_helgrind CONFIG=debug USE_ASM=yes
 ```
 
-The deterministic tests cover values below two, known small primes and composites, large one-word values, multiword values, invalid arguments, invalid lengths, zero rounds, input immutability, and randomized small values against a trial-division oracle. The multithread test proves concurrent read-only calls on independent records.
+The test sources are organized as follows:
 
-For a C11 line-coverage run, build with gcov instrumentation using the normal include paths and execute `make test CONFIG=debug USE_ASM=no`; then inspect the generated `bignum_is_prime.c.gcov` report in the repository root. Coverage is a reference-quality indicator, not a substitute for randomized differential testing.
+| File | Scope |
+|---|---|
+| `tests/test_bignum_is_prime.c` | Deterministic public API, status, boundary, and normalization tests. |
+| `tests/test_bignum_is_prime_extra.c` | Fixed-seed oracle tests, helper arithmetic, witness paths, preservation, and robustness checks. |
+| `tests/test_bignum_is_prime_mt.c` | Concurrent calls on independent read-only inputs. |
+| `tests/test_bignum_is_prime_runner.c` | Distribution integration smoke test. |
+| `tests/benchmark_adapter/test_bignum_is_prime_benchmark_adapter.c` | Adapter validation, deterministic workload construction, callback lifecycle, and checksum checks. |
+
+### C11 coverage
+
+The C11 reference coverage run uses one instrumented `src/bignum_is_prime.c` object and a combined driver that executes deterministic, extra, and multithreaded suites. The current documented run reports **82.72% line coverage**, **56.72% branch coverage**, and **71.43% call coverage** for the C11 implementation. YASM instruction coverage is not represented by gcov; the assembly path is validated by ABI-facing, differential, randomized, and boundary tests.
 
 ## Benchmarks
 
-The project-owned adapter in `benchmarks/adapter/` maps benchmark-framework transport fields to Miller–Rabin workloads. Valid `operation_kind` values are `mr-quick`, `mr-standard`, `mr-strong`, and `mr-mixed`. Input, size, capacity, and measurement axes remain compatible with benchmark-framework v1.0.0. The adapter generates deterministic normalized odd operands, invokes `bignum_is_prime`, and preserves the required machine-readable protocol markers.
+The project-owned adapter in `benchmarks/adapter/` accepts the Miller–Rabin operation vocabulary `mr-quick`, `mr-standard`, `mr-strong`, and `mr-mixed`. It creates deterministic normalized odd operands, invokes the selected implementation, and preserves the required `benchmark=...` followed by `Benchmark finished.` protocol.
 
-Run a short JSON matrix for the C11 baseline:
+Run short, reproducible JSON matrices:
 
 ```bash
 make bench_matrix CONFIG=release USE_ASM=no \
@@ -96,11 +152,7 @@ make bench_matrix CONFIG=release USE_ASM=no \
   BENCH_MATRIX_MT_TOTAL_ITERATIONS=4000 \
   BENCH_MATRIX_WARMUP=10 \
   BENCH_MATRIX_DATA_COUNT=16
-```
 
-Run the same matrix for the assembly candidate:
-
-```bash
 make bench_matrix CONFIG=release USE_ASM=yes \
   REPORT_NAME=asm_candidate \
   BENCH_MATRIX_REPETITIONS=1 \
@@ -110,22 +162,59 @@ make bench_matrix CONFIG=release USE_ASM=yes \
   BENCH_MATRIX_DATA_COUNT=16
 ```
 
-Reports are written to `benchmarks/reports/`. A successful matrix must contain successful ST and MT samples with `benchmark`, `elapsed_seconds`, and `ns_per_call` protocol fields. Keep profile, seed, compiler, CPU affinity, thread count, and total work constant when comparing C11 and ASM results.
+Reports are written to `benchmarks/reports/`. Keep profile, seed, compiler, CPU affinity, thread count, total work, and configuration constant when comparing C11 and ASM. The Montgomery REDC before/after measurement protocol and results are documented in `docs/benchmark_montgomery_redc_fix.md`.
 
-The perf targets remain available through the protected Makefile. They require a `perf` binary compatible with the running kernel; if the host does not provide compatible PMU tools, use `bench_matrix` for reproducible software-independent measurements.
+For repeated PMU-compatible measurements:
 
-## Distribution
+```bash
+make bench_stat CONFIG=release REPORT_NAME=asm_candidate \
+  DATA_MODE=mixed PERF_RUNS=7
+```
+
+When hardware PMU events are unavailable, use the cloud-compatible software-event workflow:
+
+```bash
+make bench_cl CONFIG=release REPORT_NAME=asm_candidate PERF_RUNS=7
+```
+
+## Profiles and JSON manifests
+
+Each committed profile has an adjacent companion document:
+
+| Manifest | Companion | Scope |
+|---|---|---|
+| `benchmarks/profiles/bignum_is_prime_standard.json` | `bignum_is_prime_standard.json.md` | Short standard workload. |
+| `benchmarks/profiles/bignum_is_prime_full.json` | `bignum_is_prime_full.json.md` | Full ST/MT and size matrix. |
+
+Validate the manifests with Python's JSON parser before a matrix run:
+
+```bash
+python3 -m json.tool benchmarks/profiles/bignum_is_prime_standard.json >/dev/null
+python3 -m json.tool benchmarks/profiles/bignum_is_prime_full.json >/dev/null
+```
+
+The companion documents define schema version, vocabulary, profile semantics, commands, expected outputs, comparison policy, and failure handling.
+
+## Installation and distribution
+
+Create the release distribution:
 
 ```bash
 make install CONFIG=release
 make dist CONFIG=release
 ```
 
-The generated distribution contains the public header, object/library artifacts, README, license, and integration runner. Do not modify `.github/workflows/` or `Makefile`; if a future naming mismatch cannot be solved with project-owned compatibility artifacts, document the required protected-file change for owner review instead.
+The distribution contains the public header, object/library artifacts, README, license, and integration runner. It does not contain internal `.git`, build, coverage, or temporary benchmark artifacts.
 
-## Review checklist
+## Review and quality gates
 
-Before publication, review every project-owned file under `include/`, `src/`, `benchmarks/adapter/`, `benchmarks/profiles/`, and `tests/`. Confirm that no template or shift-specific symbol remains, all Doxygen `@brief` descriptions are concise, all public parameters and return statuses are documented, and `git diff --check`, `make test`, `make lint`, sanitizer checks, matrix checks, and the final clean-tree check succeed.
+The normative documentation standard is versioned at `docs/QUALITY_GATES_DOCUMENTATION_C11_JSON.md`. The current artifact-level review is summarized in `docs/QUALITY_REVIEW_COVERAGE_AND_DOCUMENTATION.md`; additional evidence is in `docs/CRYPTO_CORE_COVERAGE.md`, `docs/failing_mont_trace_n2.md`, and `docs/benchmark_montgomery_redc_fix.md`.
+
+Before a release, run `git diff --check`, both implementation test modes, static analysis, sanitizer checks, JSON validation, the benchmark smoke matrix, and a final clean-tree check. Do not modify `Makefile` or `.github/workflows/`; required compatibility behavior belongs in project-owned adapters and documentation.
+
+## Contributing
+
+Changes must preserve the public status contract, input immutability, fixed-capacity bounds, System V AMD64 ABI, benchmark output protocol, and documented JSON vocabulary. Every new test must document its scenario, expected status/output, and oracle. Every changed header, source, test, benchmark adapter, profile, and README section must receive the applicable artifact-level Quality Gate review.
 
 ## License
 
