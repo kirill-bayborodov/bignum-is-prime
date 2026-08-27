@@ -80,13 +80,16 @@ jobs:
         done
 
     - name: Install build dependencies
-      run: sudo apt-get update && sudo apt-get install -y build-essential yasm cppcheck valgrind
+      run: sudo apt-get update && sudo apt-get install -y build-essential yasm cppcheck valgrind doxygen graphviz
 
     - name: Build project (Release)
       run: make build CONFIG=release
 
     - name: Run static analysis
       run: make lint
+
+    - name: Build API documentation
+      run: make docs
 
     - name: Run unit tests (Release)
       run: make test CONFIG=release && make test_sanitize SAN=address CONFIG=release && make test_sanitize SAN=undefined CONFIG=release && make test_helgrind CONFIG=release
@@ -132,23 +135,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        set -euo pipefail
-        TAG="${{ github.ref_name }}"
-        ARCHIVE="${{ steps.dist.outputs.archive }}"
-
-        if gh release view "$TAG" >/dev/null 2>&1; then
-          echo "Release $TAG already exists; replacing its generated asset."
-          gh release upload "$TAG" "$ARCHIVE" --clobber
-        else
-          if ! gh release create "$TAG" \
-            --title "$TAG" \
-            --notes "Release for $TAG" \
-            "$ARCHIVE"; then
-            # A concurrent tag workflow may have created the release after the
-            # view check. Make the retry idempotent and race-tolerant.
-            gh release view "$TAG" >/dev/null
-            gh release upload "$TAG" "$ARCHIVE" --clobber
-          fi
-        fi
-
-        gh release view "$TAG" >/dev/null
+        gh release create ${{ github.ref_name }} \
+          --title "${{ github.ref_name }}" \
+          --notes "Release for ${{ github.ref_name }}" \
+          ${{ steps.dist.outputs.archive }}
